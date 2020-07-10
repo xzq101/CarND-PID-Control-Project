@@ -31,6 +31,11 @@ class PID {
    */
   double TotalError();
 
+  /**
+   * @output control signal
+   */
+  double Signal();
+
  private:
   /**
    * PID Errors
