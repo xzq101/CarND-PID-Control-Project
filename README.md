@@ -5,9 +5,24 @@ Self-Driving Car Engineer Nanodegree Program
 
 ## PID parameter tuning
 
+Use the following to tune the PID parameter:
+
+![Final animation](figure/PID-adjE.jpg)
+
+## Finnal PID parameter for the track
+
+The final paremeters for the PID controler are:
+
+Kp= 0.07
+Kd= 0.00035
+Ki= 6
+
+This set of paramerter are good for throttle=0.45-0.5. Using different throttle value will need to use different set of PID paremeters.
+
+Car speed is higher than 30 MPH. The max speed is 48 MPH.
 
 ## Final animation
-
+![Final animation](figure/pid-s.gif)
 
 ## Dependencies
 
