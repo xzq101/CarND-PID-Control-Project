@@ -5,9 +5,16 @@
 #include "json.hpp"
 #include "PID.h"
 
+#include <fstream>
+#include <iostream>
+
+
 // for convenience
 using nlohmann::json;
 using std::string;
+static int count_ = 0;
+static int iteration = 0;
+
 
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
@@ -32,20 +39,52 @@ string hasData(string s) {
 
 int main() {
   uWS::Hub h;
+  double best_err=10000000;
+  std::ofstream outfile;
+  outfile.open("twiddle.txt");
+  double twiddle_error=0;
+  int iteration=0;
+  bool if_update_=false;
+  int current_index=0;
+  bool if_reverse_search=false;
+  bool if_update_dp=true;
+  bool if_update_good=false;
 
   PID pid;
-  PID speed_pid;
+  
+  //double p[3] = {.03, .00031, 1.29};
+  double p[3] = {.03, .00031, 1.29};
+  double dp[3] = {.005, .0001, 0.1};
   /**
    * TODO: Initialize the pid variable.
    */
-  pid.Init(0.06, 0.00031, 1.29);
+  pid.Init(p[0], p[1], p[2]);
 
-
-  h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, 
+  h.onMessage([&pid,&dp,&best_err,&p,&twiddle_error,&iteration,&if_update_,&current_index,&if_reverse_search,&if_update_dp,&if_update_good](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, 
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
+
+    double up_CTE_THRESHOLD = 1.0;
+    double THROTTLE_CEIL = 1.0;
+    double THROTTLE_FLOOR = 0.45;
+    double SPEED_MAX = 100.0;
+    double SPEED_MIN = 0.0;
+    double low_THROTTLE = 0.2;
+    double throttle_c;
+    double throttle_c_inv;
+    double max_sample=100;
+    double stable_sample=10;
+
+
+    throttle_c=0.3;
+
+    double db_tol=0.0000001;
+    double sum_dp=0;
+
+
+
     if (length && length > 2 && data[0] == '4' && data[1] == '2') {
       auto s = hasData(string(data).substr(0, length));
 
@@ -68,20 +107,133 @@ int main() {
            */
           pid.UpdateError(cte);
           steer_value = pid.Signal();
+
+
+          if (fabs(cte) > up_CTE_THRESHOLD) {
+            // Go slow when the cte is high
+            throttle_c = low_THROTTLE-(fabs(cte)-1)*low_THROTTLE/2.5;
+          }
+          else {
+            // Otherwise, use the inverse of the steering value as the throttle, with a max of 100
+            throttle_c = fmin(1 / fabs(steer_value), SPEED_MAX);
+
+            // Normalize the throttle value from [0, 100] to [0.45, 1.0]
+            // normalized_x = ((ceil - floor) * (x - minimum))/(maximum - minimum) + floor
+            throttle_c = ((THROTTLE_CEIL - THROTTLE_FLOOR) * (throttle_c - SPEED_MIN)) / (SPEED_MAX - SPEED_MIN) + THROTTLE_FLOOR;
+//            std::cout << "**** increase throttle ***** " << throttle_c_inv << " normal : " << throttle_c << std::endl;
  
+          }
+          throttle_c=.2;
+          //twiddle algorithm
+
+          if (count_ < max_sample){
+            ++count_; 
+            // let error become stable for a couple of try
+            if (count_ > stable_sample){
+              twiddle_error+=fabs(cte);
+      //        std::cout<<count_<<" twiddle_error:"<< twiddle_error<<"; cte:"<<cte<<std::endl;
+            }
+
+          }else{
+            // count to max sample and turn on if_update_ flag 
+            count_=0;
+            if_update_=true;
+          }
+
+          // update parameter live
+          if(if_update_){
+          std::cout<< iteration<< " "<< current_index<<" P before: "<<p[0]<<" "<<p[1]<<" "<<p[2]<<" dp "<<dp[0]<<" "<<dp[1]<<" "<<dp[2] << " error "<<twiddle_error<<" b e "<<best_err<<std::endl;
+            sum_dp=dp[0]+dp[1]+dp[2];
+            
+          // twiddle 
+            if(sum_dp>db_tol){
+              
+              if(twiddle_error<best_err){
+                // update dp to larger
+                best_err=twiddle_error;
+                dp[current_index] *= 1.1;
+                if_update_dp=true;
+                std::cout<< iteration<< " "<< current_index<<" forward P "<<p[0]<<" "<<p[1]<<" "<<p[2]<<" dp "<<dp[0]<<" "<<dp[1]<<" "<<dp[2] << " error "<<twiddle_error<<" b e "<<best_err<<std::endl;
+              }
+              else{
+                std::cout<<"in reverse: "<<" if_reverse_search ="<<if_reverse_search<<std::endl;
+                if(!if_reverse_search){
+                  // reverse search
+                  if_reverse_search=true;
+          //        std::cout<<"current_index -b "<< current_index<<"  P "<<p[current_index]<<" dP "<<dp[current_index]<<std::endl;
+                  p[current_index]=p[current_index]-2*dp[current_index];
+         //         std::cout<<"current_index -a "<< current_index<<"  P "<<p[current_index]<<" dP "<<dp[current_index]<<std::endl;
+                  pid.update_param(p[0], p[1], p[2]);
+                  if_update_dp=false;
+                  std::cout<< iteration<< " "<< current_index<<" reverse P "<<p[0]<<" "<<p[1]<<" "<<p[2]<<" dp*-2 "<<dp[0]<<" "<<dp[1]<<" "<<dp[2] << " error "<<twiddle_error<<" b e "<<best_err<<std::endl;
+                }
+                else{
+                  if_reverse_search=false;
+                  // check reverse search results
+                  if(twiddle_error<best_err){
+                    best_err=twiddle_error;
+                    dp[current_index] *= 1.1;
+                    std::cout<< iteration<< " "<< current_index<<" reverse P "<<p[0]<<" "<<p[1]<<" "<<p[2]<<" dp*1.1 "<<dp[0]<<" "<<dp[1]<<" "<<dp[2] << " error "<<twiddle_error<<" b e "<<best_err<<std::endl;
+                  }
+                  else{
+                    p[current_index]=p[current_index]+dp[current_index];
+                    pid.update_param(p[0], p[1], p[2]);
+                    dp[current_index] *= .9;
+                    std::cout<< iteration<< " "<< current_index<<" reverse P "<<p[0]<<" "<<p[1]<<" "<<p[2]<<" dp*.9 "<<dp[0]<<" "<<dp[1]<<" "<<dp[2]<< " error "<<twiddle_error<<" b e "<<best_err<<std::endl;
+                  }
+                  if_update_dp=true;
+                }
+                
+
+              }
+
+
+
+
+            }
+            else{
+              std::cout<<"sum_dp:"<< sum_dp<<"; db_tol:"<<db_tol<<std::endl;
+              std::cout<< " Current parameter is good, don't need to update"<<std::endl;
+              dp[0]=0;
+              dp[1]=0;
+              dp[2]=0;
+            }
+          //set count and error to zero
+            count_=0;
+            twiddle_error=0;
+            if_update_=false;
+            if(if_update_dp==true){
+              p[current_index]=p[current_index]+dp[current_index];
+              pid.update_param(p[0], p[1], p[2]);
+              ++current_index;
+              if(current_index>2){
+                // loop through three index
+                current_index=0;
+                ++iteration;
+              }              
+              std::cout<< iteration<< " "<< current_index<<" update P "<<p[0]<<" "<<p[1]<<" "<<p[2]<<" dp "<<dp[0]<<" "<<dp[1]<<" "<<dp[2]<< " error "<<twiddle_error<<" b e "<<best_err<<std::endl;
+
+            }
+
+          }
+
+   //       std::cout << "**** increase count ***** " <<count_<< std::endl;
+
+          
+
 
           //END 
           
           // DEBUG
-          std::cout << "CTE: " << cte << " Steering Value: " << steer_value 
-                    << std::endl;
+          // std::cout <<"iteration: "<<iteration<<" count: "<<count_<< " CTE: " << cte << " Steering Value: " << steer_value 
+          //           << std::endl;
 
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.3;
+          msgJson["throttle"] = throttle_c;
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-          std::cout << msg << std::endl;
+//          std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }  // end "telemetry" if
       } else {

@@ -18,7 +18,9 @@ void PID::Init(double Kp_, double Ki_, double Kd_) {
   Kp = Kp_;
   Ki = Ki_;
   Kd = Kd_;
-  
+  p_error=0;
+  i_error=0;
+  d_error=0;
 
 }
 
@@ -44,4 +46,11 @@ double PID::TotalError() {
 double PID::Signal(){
     // update control signal
     return  -Kp * p_error - Kd * d_error - Ki * i_error; 
+}
+
+void PID::update_param(double Kp_, double Ki_, double Kd_){
+    // update parameter
+  Kp = Kp_;
+  Ki = Ki_;
+  Kd = Kd_;
 }
