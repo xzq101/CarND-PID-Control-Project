@@ -18,6 +18,9 @@ void PID::Init(double Kp_, double Ki_, double Kd_) {
   Kp = Kp_;
   Ki = Ki_;
   Kd = Kd_;
+  p_error=0;
+  i_error=0;
+  d_error=0;
 
 }
 
@@ -35,7 +38,7 @@ double PID::TotalError() {
   /**
    * TODO: Calculate and return the total error
    */
-  return  -Kp * p_error - Kd * d_error - Ki * i_error; 
+  return  0; 
   
   // TODO: Add your total error calc here!
 }

@@ -3,6 +3,12 @@ Self-Driving Car Engineer Nanodegree Program
 
 ---
 
+## PID parameter tuning
+
+
+## Final animation
+
+
 ## Dependencies
 
 * cmake >= 3.5
